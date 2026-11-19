@@ -1,48 +1,75 @@
-import { useState } from "react";
-import reactLogo from "./assets/react.svg";
-import { invoke } from "@tauri-apps/api/core";
 import "./App.css";
+import { Button } from "./components/ui/button";
+import { open } from "@tauri-apps/plugin-dialog";
+import { import_book } from "./commands/system";
+import { db } from "./db";
+import { Book } from "./types";
+import { useEffect, useState } from "react";
 
 function App() {
-  const [greetMsg, setGreetMsg] = useState("");
-  const [name, setName] = useState("");
+  const [books, setBooks] = useState<Book[]>([]);
+  const getAllBooks = async () => {
+    const _books = await db.select<Book[]>(`
+      SELECT
+        id,
+        title,
+        author,
+        path,
+        imported_at as importedAt
+      FROM books
+      ORDER BY imported_at DESC
+    `);
 
-  async function greet() {
-    setGreetMsg(await invoke("greet", { name }));
-  }
+    setBooks(_books);
+  };
 
+  useEffect(() => {
+    getAllBooks();
+  }, []);
+
+  const importBook = async () => {
+    const file = await open({
+      multiple: false,
+      directory: false,
+    });
+
+    if (file?.trim() === "" || !file) return;
+
+    const book: Book | null = await import_book(file);
+
+    if (!book) return;
+
+    console.log("Book: ", book);
+
+    await db.execute(
+      `
+      INSERT INTO books (
+        id,
+        title,
+        author,
+        path,
+        imported_at
+      )
+      VALUES (?, ?, ?, ?, ?)
+      `,
+      [book.id, book.title, book.author, book.path, book.importedAt],
+    );
+
+    setBooks((prev) => [book, ...prev]);
+  };
   return (
-    <main className="container">
-      <h1>Welcome to Tauri + React</h1>
+    <main className="">
+      <Button onClick={importBook}>Añadir libro</Button>
+      <div className="mt-4">
+        {books &&
+          books.map((book) => (
+            <div key={book.id} className="border rounded-md p-4 mb-2">
+              <h2 className="font-semibold">{book.title}</h2>
 
-      <div className="row">
-        <a href="https://vite.dev" target="_blank">
-          <img src="/vite.svg" className="logo vite" alt="Vite logo" />
-        </a>
-        <a href="https://tauri.app" target="_blank">
-          <img src="/tauri.svg" className="logo tauri" alt="Tauri logo" />
-        </a>
-        <a href="https://react.dev" target="_blank">
-          <img src={reactLogo} className="logo react" alt="React logo" />
-        </a>
+              <p className="text-sm text-muted-foreground">{book.author}</p>
+            </div>
+          ))}
       </div>
-      <p>Click on the Tauri, Vite, and React logos to learn more.</p>
-
-      <form
-        className="row"
-        onSubmit={(e) => {
-          e.preventDefault();
-          greet();
-        }}
-      >
-        <input
-          id="greet-input"
-          onChange={(e) => setName(e.currentTarget.value)}
-          placeholder="Enter a name..."
-        />
-        <button type="submit">Greet</button>
-      </form>
-      <p>{greetMsg}</p>
     </main>
   );
 }
